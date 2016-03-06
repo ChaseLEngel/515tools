@@ -1,0 +1,27 @@
+#!/usr/bin/env ruby
+
+# Simple script to show test files.
+# ./st [extension] [test]
+# i.e.
+# ./st gpl t001
+# ./st cmd 12
+# ./st cmd err out gpl 040
+
+unless File.exist? 'tests'
+  puts 'Error: No tests directory found.'
+  exit
+end
+
+extensions = %w(gpl cmd err out)
+
+test_number = ARGV.last.dup
+
+unless test_number =~ /t\d+{3,}/
+  test_number.insert(0, '0') while test_number.length != 3 && test_number.length < 3
+end
+test_number.insert(0, 't') unless test_number[0] == 't'
+
+ARGV.select { |a| extensions.include? a }.each do |i|
+  puts '-' * 10 + i.upcase + '-' * 10
+  print `cat tests/#{test_number}.#{i}`
+end
