@@ -2,13 +2,24 @@
 
 # Executes 515 tests in a given range.
 # rt 1-10
+# rt 42-9000
+# rt 42
 
-# Parse left side of dash
-begin_range = ARGV.last.dup.match(/\d+/).to_s.to_i
-# Parse right side of dash
-end_range = ARGV.last.dup.match(/\d+$/).to_s.to_i
+begin_range = 1
+
+# Whole range given
+if ARGV.last =~ /\d+-\d+/
+  # Parse left side of dash
+  begin_range = ARGV.last.dup.match(/\d+/).to_s.to_i
+  # Parse right side of dash
+  end_range = ARGV.last.dup.match(/\d+$/).to_s.to_i
+else # Single test number given, implied range of 1-[test number]
+  end_range = ARGV.last.to_s.to_i
+end
+
 # Define the whole range
 range = (begin_range..end_range).to_a
+
 # Run 515 tester for each test number in range.
 # Split removes the Passed/Failed test count.
 range.each { |i| puts `gt #{i}`.split("\n").first }
