@@ -5,8 +5,6 @@
 # rt 42-9000
 # rt 42
 
-begin_range = 1
-
 # Whole range given
 if ARGV.last =~ /\d+-\d+/
   # Parse left side of dash
@@ -14,6 +12,7 @@ if ARGV.last =~ /\d+-\d+/
   # Parse right side of dash
   end_range = ARGV.last.dup.match(/\d+$/).to_s.to_i
 else # Single test number given, implied range of 1-[test number]
+  begin_range = 1
   end_range = ARGV.last.to_s.to_i
 end
 
@@ -22,4 +21,6 @@ range = (begin_range..end_range).to_a
 
 # Run 515 tester for each test number in range.
 # Split removes the Passed/Failed test count.
-range.each { |i| puts `gt #{i}`.split("\n").first }
+# Delete test output if test doesn't exist.
+puts range.map { |i| `gt #{i}`.split("\n").first }
+          .delete_if { |i| i =~ %r{<tests\/t\d+.gpl> does not exist. Giving up.} }
