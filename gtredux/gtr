@@ -1,0 +1,167 @@
+#!/usr/bin/env ruby
+
+# Handles all file system actions.
+require 'pathname'
+# Easy way to create classes.
+require 'ostruct'
+
+test_dir = Pathname.new('tests')
+results_dir = Pathname.new('results')
+
+# OPERATOR OVERLOAD. I got tired of typing .read everywhere.
+class Pathname
+  def ===(t2)
+    read == t2.read
+  end
+end
+
+# Simple way to interact with various test files.
+class TestFile
+  attr_reader :name
+
+  def initialize(test_name)
+    @name = test_name
+    @results = %i(passed myout myerr mypixels)
+    @tests = %i(err out keypresses pixels jpg gpl pixels_option1 pixels_option2)
+  end
+
+  # Returns a Pathname object for the given extension.
+  # i.e. TestFile<"t001">.gpl returns Pathname<"tests/t001.gpl">
+  def method_missing(ext)
+    if @results.include? ext
+      return Pathname.new("results/#{@name}.#{ext}")
+    elsif @tests.include? ext
+      return Pathname.new("tests/#{@name}.#{ext}")
+    else
+      fail("Unknown extension given #{p ext}")
+    end
+  end
+end
+
+# Convert numbers to t### format.
+def format_test_number(tn)
+  tn = tn.to_s
+  tn.insert(0, '0') while tn.length < 3
+  tn.insert(0, 't') unless tn =~ /t\d+{3}/
+  abort("Test number can't be formatted.") unless tn =~ /t\d+{3}/
+  TestFile.new(tn)
+end
+
+# Convert #-# test range to array of tests matching t### format.
+def format_test_range(range)
+  abort('Invalid test range.') unless /\d+-\d+/ =~ range
+  # Parse left side of dash
+  begin_range = range.match(/\d+/).to_s.to_i
+  # Parse right side of dash
+  end_range = range.match(/\d+$/).to_s.to_i
+  tests = (begin_range..end_range).to_a.map { |t| format_test_number(t) }
+  tests
+end
+
+# Does the gpl executable exist in current directory?
+unless File.file? 'gpl'
+  abort 'There is no gpl executable in this directory. gt is giving up.'
+end
+
+# Is the tests a directory and exist?
+unless test_dir.directory?
+  abort 'There is not a test subdirectory in this directory. gt is giving up.'
+end
+
+# Create results directory if it doesn't exist already.
+results_dir.mkdir unless results_dir.directory?
+
+# Determine what argument was given and format input if needed.
+queued_tests = if ARGV.last =~ /^(t)?\d+$/ # Single test number given
+                 [format_test_number(ARGV.last.dup)]
+               # Range of test numbers given
+               elsif ARGV.last =~ /(t)?\d+-(t)?\d+/
+                 format_test_range ARGV.last.dup
+               # Run all tests
+               else
+                 # Get 3 digit number of last test in tests directory.
+                 end_range = test_dir.entries
+                                     .last
+                                     .basename
+                                     .to_s
+                                     .sub('t', '')
+                                     .gsub(/\..*/, '')
+                 format_test_range "1-#{end_range}"
+               end
+
+# Remove tests that don't exist.
+queued_tests.keep_if { |t| t.gpl.exist? }
+
+# Make sure tests were found for given test number(s).
+abort "<#{ARGV.last}> does not exist. Giving up." if queued_tests.empty?
+
+# Remove tests that have a .passed file.
+queued_tests.each { |t| t.passed.unlink if t.passed.exist? } unless ARGV.last.nil?
+
+passed = failed = previously_passed = 0
+queued_tests.each do |t|
+  # Skip if test has been passed previously.
+  if t.passed.exist?
+    previously_passed += 1
+    next
+  end
+
+  correct_stdout = correct_stderr = correct_pixels = false
+
+  # Keep track of CLI flags.
+  gpl_flags = []
+  # Set default seed.
+  gpl_flags << '-s 42'
+
+  if t.jpg.exist?
+    t.jpg.write 'no pixel file created'
+    gpl_flags << "-dump_pixels #{t.mypixels.to_s}"
+  end
+
+  if t.keypresses.exist?
+    gpl_flags << '-stdin'
+    `./gpl #{gpl_flags.join(' ')} #{t.gpl} < #{t.keypresses} > #{t.myout.to_s} 2> #{t.myerr.to_s}`
+  else
+    `./gpl #{gpl_flags.join(' ')} #{t.gpl} > #{t.myout.to_s} 2> #{t.myerr.to_s}`
+  end
+
+  correct_stdout = t.myout === t.out
+  correct_stderr = t.myerr === t.err
+
+  if t.jpg.exist?
+    correct_pixels = if t.mypixels === t.pixels
+                       true
+                     elsif t.pixels_option1.exist? && t.mypixels === t.pixels_option1
+                       true
+                     elsif t.pixels_option2.exist? && t.mypixels === t.pixels_option2
+                       true
+                     else
+                       false
+                     end
+  else
+    # No .jpg test exists so default to correct.
+    correct_pixels = true
+  end
+
+  if correct_stdout && correct_stderr && correct_pixels
+    passed += 1
+    puts "Passed #{t.name}"
+    `touch #{t.passed.to_s}`
+  else
+    out = '<stdout incorrect>' unless correct_stdout
+    err = '<stderr incorrect>' unless correct_stderr
+    pixels = '<pixels incorrect>' unless correct_pixels
+    puts "Failed #{t.name}: #{out} #{err} #{pixels}"
+    failed += 1
+  end
+end
+
+total = passed + failed
+puts "Passed #{passed} out of #{total} tests."
+puts "Failed #{failed} out of #{total} tests."
+
+if previously_passed > 0
+  puts "  #{previously_passed} tests were skipped (passed on previous run)"
+  puts '    "$ gt -all" to run all tests (recommended before you turn in assignment)'
+  puts '    "$ gt 42" to run test t042.gpl'
+end
