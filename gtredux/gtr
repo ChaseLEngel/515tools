@@ -4,7 +4,7 @@
 require 'pathname'
 # Ruby multi threading.
 require 'thread'
-# Nice way to print out objects.
+# Nice way to print out objects. Used for debug.
 require 'pp'
 
 test_dir = Pathname.new('tests')
@@ -17,7 +17,7 @@ class Pathname
   end
 end
 
-# Holds all information and extentions for a specific test.
+# Holds all information and extensions for a specific test.
 class Test
   attr_reader :name
   attr_accessor :err_incorrect, :out_incorrect, :pixels_incorrect
@@ -29,7 +29,6 @@ class Test
     @err_incorrect = @out_incorrect = @pixels_incorrect = ''
     @passed_test = @failed_test = @previously_passed_test = 0
     @correct_stdout = @correct_stderr = @correct_pixels = false
-    # %i is shortcut for array of Symbols.
     @result_files = %w(passed myout myerr mypixels)
     @test_files = %w(err out keypresses pixels jpg gpl pixels_option1 pixels_option2)
   end
@@ -181,9 +180,9 @@ def run_test(t)
 end
 
 threads = []
-# Allows Threads to pop from queued_test without removing anything.
+# Allow Threads to pop from queued_test without removing anything.
 qt_dup = queued_tests.dup
-# Allocate Tests to threads
+# Allocate Tests to threads.
 queued_tests.size.times { threads << Thread.new { run_test(qt_dup.pop) } }
 # Wait for all threads to finish.
 threads.each(&:join)
@@ -196,7 +195,9 @@ tr = {}
 end
 
 # Print out each test result
-queued_tests.each(&:display)
+queued_tests.each do |t|
+  t.display if t.previously_passed_test == 0
+end
 
 total = tr['passed_test'].to_i + tr['failed_test'].to_i
 puts "Passed #{tr['passed_test']} out of #{total} tests."
