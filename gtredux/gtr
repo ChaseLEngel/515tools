@@ -2,13 +2,10 @@
 
 # Handles all file system actions.
 require 'pathname'
-# Ruby multi threading.
+# Ruby multi-threading.
 require 'thread'
 # Nice way to print out objects. Used for debug.
 require 'pp'
-
-test_dir = Pathname.new('tests')
-results_dir = Pathname.new('results')
 
 # OPERATOR OVERLOAD. I got tired of typing .read everywhere.
 class Pathname
@@ -19,44 +16,52 @@ end
 
 # Holds all information and extensions for a specific test.
 class Test
-  attr_reader :name
-  attr_accessor :err_incorrect, :out_incorrect, :pixels_incorrect
-  attr_accessor :passed_test, :failed_test, :previously_passed_test
   attr_accessor :correct_stdout, :correct_stderr, :correct_pixels
 
   def initialize(test_name)
     @name = test_name
-    @err_incorrect = @out_incorrect = @pixels_incorrect = ''
-    @passed_test = @failed_test = @previously_passed_test = 0
+    @passed_test = false
     @correct_stdout = @correct_stderr = @correct_pixels = false
     @result_files = %w(passed myout myerr mypixels)
     @test_files = %w(err out keypresses pixels jpg gpl pixels_option1 pixels_option2)
   end
 
+  def passed_test?
+    @passed_test ||= if correct_stdout && correct_stderr && correct_pixels
+                       `touch results/#{@name}.passed`
+                       true
+                     end
+  end
+
+  def failed_test?
+    !passed_test
+  end
+
   def display
-    print @passed_test == 1 ? 'Passed ' : 'Failed '
+    print passed_test? ? 'Passed ' : 'Failed '
     print "#{@name} "
-    print "#{@out_incorrect} "
-    print "#{@err_incorrect} "
-    puts @pixels_incorrect
+    print '<stdout incorrect> ' unless @correct_stdout
+    print '<stderr incorrect> ' unless @correct_stderr
+    print '<pixels incorrect>' unless @correct_pixels
+    puts
   end
 
   # Returns a Pathname object for the given extension.
   # i.e. Test<"t001">.gpl returns Pathname<"tests/t001.gpl">
+  # If extension ends with question mark
+  # then return true or false if the file exists.
   def method_missing(ext)
     temp_ext = ext.to_s.dup
     ext = ext.to_s.delete('?')
     if @test_files.include? ext
       test = Pathname.new("tests/#{@name}.#{ext}")
-      return test.exist? if temp_ext[temp_ext.length - 1] == '?'
-      return test
     elsif @result_files.include? ext
       test = Pathname.new("results/#{@name}.#{ext}")
-      return test.exist? if temp_ext[temp_ext.length - 1] == '?'
-      return test
     else
       fail("Unknown extension given #{p ext}")
     end
+    return test.exist? if temp_ext[temp_ext.length - 1] == '?'
+    test
   end
 end
 
@@ -65,7 +70,7 @@ def format_test_number(tn)
   tn = tn.to_s
   tn.insert(0, '0') while tn.length < 3
   tn.insert(0, 't') unless tn =~ /t\d+{3}/
-  abort("Test number can't be formatted.") unless tn =~ /t\d+{3}/
+  abort("Test number <#{tn}> can't be formatted.") unless tn =~ /t\d+{3}/
   Test.new(tn)
 end
 
@@ -76,9 +81,11 @@ def format_test_range(range)
   begin_range = range.match(/\d+/).to_s.to_i
   # Parse right side of dash
   end_range = range.match(/\d+$/).to_s.to_i
-  tests = (begin_range..end_range).to_a.map { |t| format_test_number(t) }
-  tests
+  (begin_range..end_range).to_a.map { |t| format_test_number(t) }
 end
+
+test_dir = Pathname.new('tests')
+results_dir = Pathname.new('results')
 
 # Does the gpl executable exist in current directory?
 unless File.file? 'gpl'
@@ -117,21 +124,17 @@ queued_tests.keep_if { |t| t.gpl.exist? }
 # Make sure tests were found for given test number(s).
 abort "<#{ARGV.last}> does not exist. Giving up." if queued_tests.empty?
 
-# Remove tests that have a .passed file, Unless gtr is running as default.
-unless ARGV.last.nil?
-  queued_tests.each do |t|
-    t.passed.unlink if t.passed?
-  end
-end
+# If running grader as default then remove passed tests.
+previously_passed_tests = queued_tests.size
+queued_tests.delete_if(&:passed?) if ARGV.last.nil?
+previously_passed_tests -= queued_tests.size
+
+# Delete .passed files for tests unless gtr is running as default.
+queued_tests.each { |t| t.passed.unlink if t.passed? } unless ARGV.last.nil?
 
 # Handle all the testing.
 # t - Test object
 def run_test(t)
-  # Skip if test has been passed previously.
-  if t.passed?
-    t.previously_passed_test = 1
-    return
-  end
 
   # Keep track of CLI flags.
   gpl_flags = []
@@ -150,6 +153,7 @@ def run_test(t)
     `./gpl #{gpl_flags.join(' ')} #{t.gpl} > #{t.myout.to_s} 2> #{t.myerr.to_s}`
   end
 
+  # Compare file contents.
   t.correct_stdout = t.myout === t.out
   t.correct_stderr = t.myerr === t.err
 
@@ -167,44 +171,26 @@ def run_test(t)
     # No .jpg test exists so default to correct.
     t.correct_pixels = true
   end
-
-  if t.correct_stdout && t.correct_stderr && t.correct_pixels
-    t.passed_test = 1
-    `touch #{t.passed.to_s}`
-  else
-    t.out_incorrect = '<stdout incorrect>' unless t.correct_stdout
-    t.err_incorrect = '<stderr incorrect>' unless t.correct_stderr
-    t.pixels_incorrect = '<pixels incorrect>' unless t.correct_pixels
-    t.failed_test = 1
-  end
 end
 
 threads = []
-# Allow Threads to pop from queued_test without removing anything.
-qt_dup = queued_tests.dup
 # Allocate Tests to threads.
-queued_tests.size.times { threads << Thread.new { run_test(qt_dup.pop) } }
+queued_tests.each { |t| threads << Thread.new { run_test(t) } }
 # Wait for all threads to finish.
 threads.each(&:join)
 
-# Get stats of tests.
-tr = {}
-%w(passed_test failed_test previously_passed_test).each do |s|
-  # Call Test.s for every Test and sum up values.
-  tr[s] = queued_tests.map { |t| t.send(s) }.inject(:+)
-end
+# Print out results for each test.
+queued_tests.each(&:display)
 
-# Print out each test result
-queued_tests.each do |t|
-  t.display if t.previously_passed_test == 0
-end
+total = queued_tests.size
+total_passed = queued_tests.keep_if(&:passed_test?).size
+total_failed = total - total_passed
 
-total = tr['passed_test'].to_i + tr['failed_test'].to_i
-puts "Passed #{tr['passed_test']} out of #{total} tests."
-puts "Failed #{tr['failed_test']} out of #{total} tests."
+puts "Passed #{total_passed} out of #{total} tests."
+puts "Failed #{total_failed} out of #{total} tests."
 
-if tr['previously_passed'].to_i > 0
-  puts "  #{tr['previously_passed_test']} tests were skipped (passed on previous run)"
-  puts '    "$ gt -all" to run all tests (recommended before you turn in assignment)'
-  puts '    "$ gt 42" to run test t042.gpl'
+if previously_passed_tests > 0
+  puts "\t#{previously_passed_tests} tests were skipped (passed on previous run)"
+  puts "\t'$ gt -all' to run all tests (recommended before you turn in assignment)"
+  puts "\t'$ gt 42' to run test t042.gpl"
 end
