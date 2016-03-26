@@ -6,7 +6,6 @@ require 'pathname'
 require 'thread'
 # Nice way to print out objects. Used for debug.
 require 'pp'
-
 require 'timeout'
 
 # OPERATOR OVERLOAD. I got tired of typing .read everywhere.
@@ -150,11 +149,11 @@ def run_test(t)
     pid = spawn("./gpl #{gpl_flags.join(' ')} #{t.gpl}", out: t.myout.to_s, err: t.myerr.to_s)
   end
 
-  # Timeout if gpl is taking too long.
+  # Kill gpl if it is taking to long to finish.
   begin
     Timeout.timeout(5) { Process.wait pid }
   rescue Timeout::Error
-    # puts "gpl for #{t.name} took to long to exit."
+    Process.kill('SIGINT', pid)
   end
 
   # Compare file contents.
@@ -178,8 +177,14 @@ def run_test(t)
 end
 
 threads = []
+max_threads = 5
+temp_qt = queued_tests.dup
 # Allocate Tests to threads.
-queued_tests.each { |t| threads << Thread.new { run_test(t) } }
+max_threads.times do
+  threads << Thread.new do
+    run_test(temp_qt.pop) until temp_qt.empty?
+  end
+end
 # Wait for all threads to finish.
 threads.each(&:join)
 
