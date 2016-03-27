@@ -6,9 +6,14 @@ require 'pathname'
 require 'thread'
 # Nice way to print out objects. Used for debug.
 require 'pp'
+# Times code execution.
 require 'timeout'
 
+$result_files = %w(passed myout myerr mypixels).freeze
+$test_files = %w(err out keypresses pixels jpg gpl pixels_option1 pixels_option2).freeze
+
 # OPERATOR OVERLOAD. I got tired of typing .read everywhere.
+# TODO replace with Test.compare(:err)
 class Pathname
   def ===(t2)
     read == t2.read
@@ -23,8 +28,6 @@ class Test
     @name = test_name
     @passed_test = false
     @correct_stdout = @correct_stderr = @correct_pixels = false
-    @result_files = %w(passed myout myerr mypixels)
-    @test_files = %w(err out keypresses pixels jpg gpl pixels_option1 pixels_option2)
   end
 
   def passed_test?
@@ -50,9 +53,9 @@ class Test
   def method_missing(ext)
     temp_ext = ext.to_s.dup
     ext = ext.to_s.delete('?')
-    if @test_files.include? ext
+    if $test_files.include? ext
       test = Pathname.new("tests/#{@name}.#{ext}")
-    elsif @result_files.include? ext
+    elsif $result_files.include? ext
       test = Pathname.new("results/#{@name}.#{ext}")
     else
       fail("Unknown extension given #{p ext}")
@@ -127,6 +130,7 @@ else
   # Delete .passed files for tests unless gtr is running as default.
   queued_tests.each { |t| t.passed.unlink if t.passed? }
 end
+# Update if any tests have been removed.
 previously_passed_tests -= queued_tests.size
 
 # Handle all the testing.
@@ -141,6 +145,8 @@ def run_test(t)
     t.jpg.write 'no pixel file created'
     gpl_flags << "-dump_pixels #{t.mypixels.to_s}"
   end
+
+  # TODO if graphics are going to be displayed lock the gpl command.
 
   if t.keypresses?
     gpl_flags << '-stdin'
