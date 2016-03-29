@@ -21,4 +21,6 @@ t055: INVALID_LEFT_OPERAND_TYPE, INVALID_RIGHT_OPERAND_TYPE
 ```
 
 ### Install
+This requires the gem [text](https://github.com/threedaymonk/text). To install this run: `gem install text`. 
+
 Copy the Ruby scripts into your `gpl/bin` directory. Make sure your `gpl/bin` path is added to `$PATH`.
