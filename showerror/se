@@ -1,0 +1,47 @@
+#!/usr/bin/env ruby
+
+require 'text'
+require 'json'
+require 'pathname'
+
+errors_json = File.join(__dir__, 'errors.json')
+
+tests_dir = Pathname.new('tests')
+
+abort('File "errors.json" does not exist.') unless File.exist? errors_json
+
+abort('Directory "tests" does not exist.') unless tests_dir.directory?
+
+# Get { error name => error message } pairs from JSON file.
+errors_hash = JSON.parse(File.read(errors_json))
+
+# Algorithm that calculates string similarity.
+w = Text::WhiteSimilarity.new
+
+tests_dir.children.each do |c|
+  next unless c.extname == '.err'
+  matches = { name: '', err: [] }
+  # Read each line of .err file.
+  c.readlines.each do |line|
+    next if line.empty?
+    best_fit = { p: 0.0, err: nil }
+    # Find the best matching error name using
+    # the .err file contents and JSON err message.
+    errors_hash.each_pair do |k, v|
+      # Returns a float between 0.0 and 1.0
+      percent = w.similarity(v, line)
+      # If string similarity percentage is greater than previous,
+      # save percent and error name.
+      best_fit = { p: percent, err: k } if percent >= best_fit[:p]
+    end
+    # Delete .err from test name and save it.
+    matches[:name] = c.basename.to_s.delete(c.extname.to_s)
+    # Save the best matching error name. Pushing onto an array
+    # allows for .err files with multiple errors to be saved.
+    matches[:err] << best_fit[:err]
+  end
+  # For each .err display test name and matching error names.
+  unless matches[:name].empty?
+    puts "#{matches[:name]}: #{matches[:err].join(', ')}"
+  end
+end
