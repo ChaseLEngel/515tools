@@ -1,3 +1,5 @@
+# This has only works for P1-P5
+
 # Gt Redux
 ### Description
 A multi-threaded version of gt rewritten in Ruby.
